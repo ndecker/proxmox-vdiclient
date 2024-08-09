@@ -16,6 +16,10 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
+const (
+	DefaultRefreshInterval = 30 * time.Second
+)
+
 var (
 	ctrlQ = &desktop.CustomShortcut{KeyName: fyne.KeyQ, Modifier: fyne.KeyModifierControl}
 
@@ -23,9 +27,21 @@ var (
 	ctrlS = &desktop.CustomShortcut{KeyName: fyne.KeyS, Modifier: fyne.KeyModifierControl}
 )
 
+type GuiConfig struct {
+	refreshInterval time.Duration
+	overrideTheme   string
+}
+
+func DefaultGuiConfig() *GuiConfig {
+	return &GuiConfig{
+		refreshInterval: DefaultRefreshInterval,
+		overrideTheme:   "",
+	}
+}
+
 type GuiState struct {
 	client *ProxmoxClient
-	config *Config
+	config *GuiConfig
 
 	mu        sync.Mutex
 	resources []Resource
@@ -37,19 +53,7 @@ type GuiState struct {
 	errorLabel *widget.Label
 }
 
-func (s *GuiState) withCurrentVM(f func(vm *Resource) error) func(shortcut fyne.Shortcut) {
-	return func(_ fyne.Shortcut) {
-		s.mu.Lock()
-		vm := &s.resources[s.table.CurrentRow]
-		s.mu.Unlock()
-		if vm != nil {
-			err := f(vm)
-			s.error(err)
-		}
-	}
-}
-
-func runGui(c *Config, client *ProxmoxClient) error {
+func runGui(c *GuiConfig, client *ProxmoxClient) error {
 	state := &GuiState{
 		config:       c,
 		client:       client,
@@ -215,3 +219,15 @@ func (s *GuiState) loadResources(ctx context.Context) {
 }
 
 func (s *GuiState) triggerRefresh() { s.refresh <- struct{}{} }
+
+func (s *GuiState) withCurrentVM(f func(vm *Resource) error) func(shortcut fyne.Shortcut) {
+	return func(_ fyne.Shortcut) {
+		s.mu.Lock()
+		vm := &s.resources[s.table.CurrentRow]
+		s.mu.Unlock()
+		if vm != nil {
+			err := f(vm)
+			s.error(err)
+		}
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -32,7 +33,7 @@ type ClientConfig struct {
 	kiosk        bool
 	fullscreen   bool
 
-	SkipTLSVerify bool
+	SkipTLSVerify bool // TODO
 
 	tokenName  string
 	tokenValue string
@@ -42,7 +43,7 @@ type ClientConfig struct {
 	debugSpiceSession bool
 }
 
-func defaultClientConfig() ClientConfig {
+func DefaultClientConfig() ClientConfig {
 	return ClientConfig{
 		Port:          DefaultPort,
 		remoteViewer:  DefaultRemoteViewer,
@@ -62,11 +63,19 @@ type ProxmoxClient struct {
 	headers map[string]string
 }
 
-func NewProxmoxClient(host string, c ClientConfig) *ProxmoxClient {
+func NewProxmoxClient(c ClientConfig) (*ProxmoxClient, error) {
+	if !filepath.IsAbs(c.remoteViewer) {
+		var err error
+		c.remoteViewer, err = exec.LookPath(c.remoteViewer)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	client := &ProxmoxClient{
 		ClientConfig: c,
 
-		apiUri: fmt.Sprintf("https://%s:%d%s", host, c.Port, APIPath),
+		apiUri: fmt.Sprintf("https://%s:%d%s", c.Host, c.Port, APIPath),
 		client: http.DefaultClient,
 
 		headers: make(map[string]string),
@@ -76,9 +85,7 @@ func NewProxmoxClient(host string, c ClientConfig) *ProxmoxClient {
 		client.headers["Authorization"] = fmt.Sprintf("PVEAPIToken=%s=%s", client.tokenName, client.tokenValue)
 	}
 
-	// _ = client.get(nil, "access", "permissions")
-
-	return client
+	return client, nil
 }
 
 func (c *ProxmoxClient) get(data any, endpoint ...string) error {
