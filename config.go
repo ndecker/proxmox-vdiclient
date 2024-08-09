@@ -7,11 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 func defaultConfig() *Config {
 	return &Config{
-		ClientConfig: defaultClientConfig(),
+		ClientConfig:    defaultClientConfig(),
+		refreshInterval: 5 * time.Second,
 	}
 }
 

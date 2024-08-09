@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // https://pve.proxmox.com/wiki/Proxmox_VE_API
@@ -36,6 +37,8 @@ type ClientConfig struct {
 	tokenName  string
 	tokenValue string
 
+	autostartVM bool
+
 	debugSpiceSession bool
 }
 
@@ -46,6 +49,7 @@ func defaultClientConfig() ClientConfig {
 		kiosk:         false,
 		fullscreen:    false,
 		SkipTLSVerify: false,
+		autostartVM:   true,
 	}
 }
 
@@ -71,6 +75,8 @@ func NewProxmoxClient(host string, c ClientConfig) *ProxmoxClient {
 	if client.tokenName != "" {
 		client.headers["Authorization"] = fmt.Sprintf("PVEAPIToken=%s=%s", client.tokenName, client.tokenValue)
 	}
+
+	// _ = client.get(nil, "access", "permissions")
 
 	return client
 }
@@ -125,24 +131,6 @@ func (c *ProxmoxClient) request(method string, endpoint []string, data any) erro
 	}
 }
 
-func (c *ProxmoxClient) Nodes() ([]Node, error) {
-	var nodes []Node
-	err := c.get(&nodes, "nodes")
-	if err != nil {
-		return nil, err
-	}
-	return nodes, nil
-}
-
-type Node struct {
-	SSLFingerprint string `json:"ssl_fingerprint"`
-	Level          string `json:"level"`
-	Type           string `json:"type"`
-	Node           string `json:"node"`
-	Status         string `json:"status"`
-	Id             string `json:"id"`
-}
-
 func (c *ProxmoxClient) Resources() ([]Resource, error) {
 	var resources []Resource
 	err := c.get(&resources, "cluster/resources")
@@ -162,28 +150,72 @@ type Resource struct {
 	Uptime int    `json:"uptime"`
 }
 
-func (c *ProxmoxClient) Status(node string, vmid int) (string, error) {
+func (c *ProxmoxClient) Status(vm *Resource) (string, error) {
 	var stat struct {
 		Status string `json:"status"`
 	}
 
-	err := c.get(&stat, "nodes", node, "qemu", strconv.Itoa(vmid), "status", "current")
+	err := c.get(&stat, "nodes", vm.Node, "qemu", strconv.Itoa(vm.VmId), "status", "current")
 	if err != nil {
 		return "", err
 	}
 	return stat.Status, nil
 }
 
-func (c *ProxmoxClient) Operate(node string, vmid int, operation string) error {
+func (c *ProxmoxClient) Operate(vm *Resource, operation string) error {
+	log.Printf("proxmox operate %s %s: %s", vm.Node, vm.Id, operation)
 	var jobId string
-	err := c.post(&jobId, "nodes", node, "qemu", strconv.Itoa(vmid), "status", operation)
-	// fmt.Println(jobId)
-	return err
+	err := c.post(&jobId, "nodes", vm.Node, "qemu", strconv.Itoa(vm.VmId), "status", operation)
+	if err != nil {
+		return err
+	}
+
+	var wantStatus string
+	switch operation {
+	case "start":
+		wantStatus = "running"
+	case "stop":
+		wantStatus = "stopped"
+	default:
+		return nil
+	}
+
+	for {
+		time.Sleep(100 * time.Millisecond)
+		status, err := c.Status(vm)
+		if err != nil {
+			return err
+		}
+		log.Println(status)
+		if status == wantStatus {
+			return nil
+		}
+	}
 }
 
-func (c *ProxmoxClient) SpiceProxy(node string, vmid int) error {
+func (c *ProxmoxClient) Start(vm *Resource) error { return c.Operate(vm, "start") }
+func (c *ProxmoxClient) Stop(vm *Resource) error  { return c.Operate(vm, "stop") }
+func (c *ProxmoxClient) Reset(vm *Resource) error { return c.Operate(vm, "reset") }
+
+func (c *ProxmoxClient) SpiceProxy(vm *Resource) error {
+	log.Printf("proxmox spiceproxy %s %s", vm.Node, vm.Id)
+
+	if c.autostartVM {
+		status, err := c.Status(vm)
+		if err != nil {
+			return err
+		}
+		if status != "running" {
+			log.Printf("proxmox spiceproxy autostart %s %s", vm.Node, vm.Id)
+			err = c.Start(vm)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
 	keys := make(map[string]any)
-	err := c.post(&keys, "nodes", node, "qemu", strconv.Itoa(vmid), "spiceproxy")
+	err := c.post(&keys, "nodes", vm.Node, "qemu", strconv.Itoa(vm.VmId), "spiceproxy")
 	if err != nil {
 		return err
 	}

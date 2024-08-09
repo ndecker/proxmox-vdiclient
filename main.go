@@ -16,7 +16,8 @@ const ProgName = "proxmox-vdiclient"
 type Config struct {
 	ClientConfig
 
-	startStoppedVMs bool
+	refreshInterval time.Duration
+	overrideTheme   string
 
 	// TODO: verbose
 }
@@ -24,12 +25,17 @@ type Config struct {
 func run(c *Config, args []string) error {
 	client := NewProxmoxClient(c.Host, c.ClientConfig)
 
-	var vmName string
-	var operation string
+	if len(args) == 0 {
+		return runGui(c, client)
+	} else {
+		return runCli(client, args)
+	}
+}
+
+func runCli(client *ProxmoxClient, args []string) error {
+	var vmName, operation string
 
 	switch len(args) {
-	case 0:
-		return runGui(c)
 	case 1:
 		vmName = args[0]
 		operation = "open"
@@ -68,42 +74,15 @@ func run(c *Config, args []string) error {
 
 	switch operation {
 	case "status":
-		stat, err := client.Status(vm.Node, vm.VmId)
+		stat, err := client.Status(vm)
 		if err != nil {
 			return err
 		}
 		fmt.Println(stat)
 	case "open":
-		stat, err := client.Status(vm.Node, vm.VmId)
-		if err != nil {
-			return err
-		}
-
-		if stat != "running" {
-			log.Printf("starting VM %d %s", vm.VmId, vm.Name)
-			err = client.Operate(vm.Node, vm.VmId, "start")
-			if err != nil {
-				return err
-			}
-
-			for {
-				time.Sleep(200 * time.Millisecond)
-
-				stat, err = client.Status(vm.Node, vm.VmId)
-				if err != nil {
-					return err
-				}
-
-				if stat == "running" {
-					break
-				}
-				log.Printf("waiting for VM %d %s to start", vm.VmId, vm.Name)
-			}
-		}
-
-		return client.SpiceProxy(vm.Node, vm.VmId)
+		return client.SpiceProxy(vm)
 	case "start", "stop", "reset":
-		return client.Operate(vm.Node, vm.VmId, operation)
+		return client.Operate(vm, operation)
 	default:
 		return fmt.Errorf("invalid operation")
 	}
@@ -139,9 +118,10 @@ func main() {
 	flagSet.StringVar(&config.tokenName, "token-name", "", "token name")
 	flagSet.StringVar(&config.tokenValue, "token-value", "", "token value")
 
-	flagSet.BoolVar(&config.startStoppedVMs, "start-stopped", true, "start stopped VMs before opening")
+	flagSet.BoolVar(&config.autostartVM, "autostart-vm", config.autostartVM, "start stopped VMs before opening")
+	flagSet.DurationVar(&config.refreshInterval, "refresh-interval", config.refreshInterval, "refresh interval")
+	flagSet.StringVar(&config.overrideTheme, "override-theme", config.overrideTheme, "override theme (dark/light)")
 
-	flagSet.BoolVar(&config.debugSpiceSession, "debug-spice-session", false, "debug spice session")
 	err := flagSet.Parse(os.Args[1:])
 	if err != nil {
 		log.Fatal(err)
