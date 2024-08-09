@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -62,8 +63,8 @@ type ProxmoxClient struct {
 
 	apiUri string
 
-	client  *http.Client
-	headers map[string]string
+	httpClient *http.Client
+	headers    map[string]string
 }
 
 func NewProxmoxClient(c ClientConfig) (*ProxmoxClient, error) {
@@ -78,10 +79,18 @@ func NewProxmoxClient(c ClientConfig) (*ProxmoxClient, error) {
 	client := &ProxmoxClient{
 		ClientConfig: c,
 
-		apiUri: fmt.Sprintf("https://%s:%d%s", c.Host, c.Port, APIPath),
-		client: http.DefaultClient,
+		apiUri:     fmt.Sprintf("https://%s:%d%s", c.Host, c.Port, APIPath),
+		httpClient: &http.Client{},
 
 		headers: make(map[string]string),
+	}
+
+	if c.SkipTLSVerify {
+		c.LogPrintf("WARNING: skipping TLS verification!")
+		tr := &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		}
+		client.httpClient.Transport = tr
 	}
 
 	if client.tokenName != "" {
@@ -113,7 +122,7 @@ func (c *ProxmoxClient) request(method string, endpoint []string, data any) erro
 		req.Header.Add(k, v)
 	}
 
-	resp, err := c.client.Do(req)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return err
 	}
