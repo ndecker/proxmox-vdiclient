@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -41,6 +41,8 @@ type ClientConfig struct {
 	autostartVM bool
 
 	debugSpiceSession bool
+
+	LogPrintf func(string, ...interface{})
 }
 
 func DefaultClientConfig() ClientConfig {
@@ -51,6 +53,7 @@ func DefaultClientConfig() ClientConfig {
 		fullscreen:    false,
 		SkipTLSVerify: false,
 		autostartVM:   true,
+		LogPrintf:     func(string, ...interface{}) {},
 	}
 }
 
@@ -170,7 +173,7 @@ func (c *ProxmoxClient) Status(vm *Resource) (string, error) {
 }
 
 func (c *ProxmoxClient) Operate(vm *Resource, operation string) error {
-	log.Printf("proxmox operate %s %s: %s", vm.Node, vm.Id, operation)
+	c.LogPrintf("proxmox operate %s %s: %s", vm.Node, vm.Id, operation)
 	var jobId string
 	err := c.post(&jobId, "nodes", vm.Node, "qemu", strconv.Itoa(vm.VmId), "status", operation)
 	if err != nil {
@@ -193,7 +196,7 @@ func (c *ProxmoxClient) Operate(vm *Resource, operation string) error {
 		if err != nil {
 			return err
 		}
-		log.Println(status)
+		c.LogPrintf("vm status %s %s: %s", vm.Node, vm.Id, status)
 		if status == wantStatus {
 			return nil
 		}
@@ -205,7 +208,7 @@ func (c *ProxmoxClient) Stop(vm *Resource) error  { return c.Operate(vm, "stop")
 func (c *ProxmoxClient) Reset(vm *Resource) error { return c.Operate(vm, "reset") }
 
 func (c *ProxmoxClient) SpiceProxy(vm *Resource) error {
-	log.Printf("proxmox spiceproxy %s %s", vm.Node, vm.Id)
+	c.LogPrintf("proxmox spiceproxy %s %s", vm.Node, vm.Id)
 
 	if c.autostartVM {
 		status, err := c.Status(vm)
@@ -213,7 +216,7 @@ func (c *ProxmoxClient) SpiceProxy(vm *Resource) error {
 			return err
 		}
 		if status != "running" {
-			log.Printf("proxmox spiceproxy autostart %s %s", vm.Node, vm.Id)
+			c.LogPrintf("proxmox spiceproxy autostart %s %s", vm.Node, vm.Id)
 			err = c.Start(vm)
 			if err != nil {
 				return err
@@ -229,15 +232,13 @@ func (c *ProxmoxClient) SpiceProxy(vm *Resource) error {
 
 	var sb strings.Builder
 	sb.WriteString("[virt-viewer]\n")
-
 	for k, v := range keys {
 		sb.WriteString(fmt.Sprintf("%s=%v\n", k, v))
 	}
-
 	data := sb.String()
 
 	if c.debugSpiceSession {
-		log.Print(data)
+		fmt.Println(data)
 	}
 
 	var args []string
@@ -248,10 +249,12 @@ func (c *ProxmoxClient) SpiceProxy(vm *Resource) error {
 		args = append(args, "--full-screen")
 	}
 
-	args = append(args, "-")
+	args = append(args, "-") // read config from stdin
 
 	cmd := exec.Command(c.remoteViewer, args...)
 	cmd.Stdin = strings.NewReader(data)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 
 	return cmd.Run()
 }

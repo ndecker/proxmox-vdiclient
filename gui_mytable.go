@@ -8,14 +8,31 @@ import (
 type MyTable struct {
 	*widget.Table
 	CurrentRow int
+	cols       int
 
-	OnActivated func(fyne.Shortcut)
+	OnActivated func()
+	OnTyped     func(event *fyne.KeyEvent)
 }
 
-func NewMyTable(length func() (rows int, cols int), create func() fyne.CanvasObject, update func(widget.TableCellID, fyne.CanvasObject)) *MyTable {
+func NewMyTable(
+	cols []string,
+	widths []float32,
+	rows func() (rows int),
+	create func() fyne.CanvasObject,
+	update func(widget.TableCellID, fyne.CanvasObject),
+) *MyTable {
+	length := func() (int, int) { return rows(), len(cols) }
+
 	table := &MyTable{
 		Table: widget.NewTable(length, create, update),
 	}
+
+	if len(cols) != len(widths) {
+		panic("inconsistent cols and widths")
+	}
+
+	table.addHeader(cols)
+	table.setColWidths(widths)
 
 	table.moveSelection(0)
 	return table
@@ -48,16 +65,20 @@ func (t *MyTable) TypedKey(event *fyne.KeyEvent) {
 	switch event.Name {
 	case fyne.KeyReturn, fyne.KeyEnter:
 		if t.OnActivated != nil {
-			t.OnActivated(nil)
+			t.OnActivated()
 		}
 	case fyne.KeyUp:
 		t.moveSelection(-1)
 	case fyne.KeyDown:
 		t.moveSelection(1)
+	default:
+		if t.OnTyped != nil {
+			t.OnTyped(event)
+		}
 	}
 }
 
-func (t *MyTable) AddHeader(cols ...string) {
+func (t *MyTable) addHeader(cols []string) {
 	t.ShowHeaderRow = true
 	t.CreateHeader = func() fyne.CanvasObject {
 		label := widget.NewLabel("Column")
@@ -75,7 +96,7 @@ func (t *MyTable) AddHeader(cols ...string) {
 	}
 }
 
-func (t *MyTable) SetColWidths(widths ...float32) {
+func (t *MyTable) setColWidths(widths []float32) {
 	for c, w := range widths {
 		t.SetColumnWidth(c, w)
 	}

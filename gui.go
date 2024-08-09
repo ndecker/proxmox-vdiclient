@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"log"
 	"strconv"
 	"sync"
 	"time"
@@ -25,26 +24,35 @@ var (
 
 	ctrlR = &desktop.CustomShortcut{KeyName: fyne.KeyR, Modifier: fyne.KeyModifierControl}
 	ctrlS = &desktop.CustomShortcut{KeyName: fyne.KeyS, Modifier: fyne.KeyModifierControl}
+	F5    = &desktop.CustomShortcut{KeyName: fyne.KeyF5}
 )
 
 type GuiConfig struct {
+	title           string
 	refreshInterval time.Duration
 	overrideTheme   string
+
+	LogPrintf func(string, ...interface{})
 }
 
 func DefaultGuiConfig() *GuiConfig {
 	return &GuiConfig{
+		title:           ProgName,
 		refreshInterval: DefaultRefreshInterval,
 		overrideTheme:   "",
+		LogPrintf:       func(string, ...interface{}) {},
 	}
 }
 
 type GuiState struct {
+	*GuiConfig
 	client *ProxmoxClient
-	config *GuiConfig
 
 	mu        sync.Mutex
 	resources []Resource
+
+	app        fyne.App
+	mainWindow fyne.Window
 
 	refresh      chan struct{}
 	updateTicker *time.Ticker
@@ -53,100 +61,111 @@ type GuiState struct {
 	errorLabel *widget.Label
 }
 
-func runGui(c *GuiConfig, client *ProxmoxClient) error {
+func runGui(c *GuiConfig, client *ProxmoxClient) {
 	state := &GuiState{
-		config:       c,
+		GuiConfig:    c,
 		client:       client,
+		app:          app.NewWithID(ProgName),
 		refresh:      make(chan struct{}),
 		updateTicker: time.NewTicker(c.refreshInterval),
 	}
 	ctx, cancelCtx := context.WithCancel(context.Background())
+	defer cancelCtx()
 
-	a := app.NewWithID(ProgName)
-
-	switch state.config.overrideTheme {
+	switch state.overrideTheme {
 	case "dark":
-		a.Settings().SetTheme(theme.DarkTheme())
+		state.app.Settings().SetTheme(theme.DarkTheme())
 	case "light":
-		a.Settings().SetTheme(theme.LightTheme())
+		state.app.Settings().SetTheme(theme.LightTheme())
 	}
 
-	main := mainWindow(a, state)
-	main.Show()
+	state.mainWindow = state.createMainWindow()
+	state.mainWindow.Show()
 
-	go state.loadResources(ctx)
+	go state.loadResourcesLoop(ctx)
 
-	a.Run()
-	cancelCtx()
-	return nil
+	state.app.Run()
 }
 
-func mainWindow(a fyne.App, state *GuiState) fyne.Window {
-	main := a.NewWindow(ProgName)
+func (s *GuiState) createMainWindow() fyne.Window {
+	main := s.app.NewWindow(ProgName)
 	main.Resize(fyne.Size{Width: 600, Height: 480})
 
-	main.Canvas().AddShortcut(ctrlQ, func(shortcut fyne.Shortcut) { a.Quit() })
+	main.Canvas().AddShortcut(ctrlQ, func(_ fyne.Shortcut) { s.app.Quit() })
+	main.Canvas().AddShortcut(ctrlS, func(_ fyne.Shortcut) { s.withCurrentVM(s.startStopVM) })
+	main.Canvas().AddShortcut(ctrlR, func(_ fyne.Shortcut) { s.withCurrentVM(s.client.Reset) })
 
-	main.Canvas().AddShortcut(ctrlS, state.withCurrentVM(func(vm *Resource) error {
-		var err error
-		if vm.Status == "stopped" {
-			err = state.client.Operate(vm, "start")
-		} else if vm.Status == "running" {
-			err = state.client.Operate(vm, "stop")
+	s.table = s.createTable()
+	s.table.OnActivated = func() { s.withCurrentVM(s.showVM) }
+	s.table.OnTyped = func(event *fyne.KeyEvent) {
+		switch event.Name {
+		case F5.KeyName:
+			s.triggerRefresh()
 		}
-		if err != nil {
-			return err
-		}
-		state.triggerRefresh()
-		return nil
-	}))
+	}
 
-	main.Canvas().AddShortcut(ctrlR, state.withCurrentVM(state.client.Reset))
-
-	state.table = createTable(state)
-	state.table.OnActivated = state.withCurrentVM(func(vm *Resource) error {
-		main.Hide()
-		state.updateTicker.Stop()
-
-		defer main.Show()
-		defer state.triggerRefresh()
-
-		return state.client.SpiceProxy(vm)
-	})
-
-	title := canvas.NewText(ProgName,
-		a.Settings().Theme().Color(theme.ColorNameForeground, a.Settings().ThemeVariant()))
+	title := canvas.NewText(s.title,
+		s.app.Settings().Theme().Color(theme.ColorNameForeground, s.app.Settings().ThemeVariant()))
 	title.TextSize *= 2
 	title.TextStyle.Bold = true
+	title.Alignment = fyne.TextAlignCenter
 
-	state.errorLabel = widget.NewLabel("")
-	state.errorLabel.Importance = widget.DangerImportance
-	state.errorLabel.Hide()
+	s.errorLabel = widget.NewLabel("")
+	s.errorLabel.Importance = widget.DangerImportance
+	s.errorLabel.Hide()
 
-	cont := container.NewBorder(title, state.errorLabel, nil, nil, state.table)
+	infoLabel := widget.NewLabel("Enter: open | F5: refresh | Ctrl-Q: quit | Ctrl-S: start/stop | Ctrl-R: reset")
+
+	infoRow := container.NewVBox(s.errorLabel, infoLabel)
+
+	cont := container.NewBorder(title, infoRow, nil, nil, s.table)
 	main.SetContent(cont)
 
-	main.Canvas().Focus(state.table)
+	main.Canvas().Focus(s.table)
 	main.SetMaster()
 	main.CenterOnScreen()
 	return main
 }
 
-func createTable(state *GuiState) *MyTable {
-	table := NewMyTable(
-		func() (rows int, cols int) {
-			state.mu.Lock()
-			defer state.mu.Unlock()
-			return len(state.resources), 3
+func (s *GuiState) showVM(vm *Resource) error {
+	s.mainWindow.Hide()
+	s.updateTicker.Stop()
+	defer s.mainWindow.Show()
+	defer s.triggerRefresh()
 
+	return s.client.SpiceProxy(vm)
+}
+
+func (s *GuiState) startStopVM(vm *Resource) error {
+	var err error
+	if vm.Status == "stopped" {
+		err = s.client.Operate(vm, "start")
+	} else if vm.Status == "running" {
+		err = s.client.Operate(vm, "stop")
+	}
+	if err != nil {
+		return err
+	}
+	s.triggerRefresh()
+	return nil
+}
+
+func (s *GuiState) createTable() *MyTable {
+	return NewMyTable(
+		[]string{"VM Id", "Name", "Status"},
+		[]float32{64, 256, 64},
+		func() (rows int) {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			return len(s.resources)
 		},
 		func() fyne.CanvasObject {
 			return widget.NewLabel("table cell")
 		},
 		func(id widget.TableCellID, object fyne.CanvasObject) {
-			state.mu.Lock()
-			defer state.mu.Unlock()
-			vm := state.resources[id.Row]
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			vm := s.resources[id.Row]
 
 			label := object.(*widget.Label)
 
@@ -163,71 +182,74 @@ func createTable(state *GuiState) *MyTable {
 			}
 		},
 	)
-
-	table.AddHeader("VM Id", "Name", "Status")
-	table.SetColWidths(64, 256, 64)
-
-	return table
 }
 
 func (s *GuiState) error(err error) {
 	if err != nil {
-		log.Println(err)
+		s.LogPrintf("Error: %s", err)
 		s.errorLabel.SetText("Error: " + err.Error())
 		s.errorLabel.Show()
+		s.errorLabel.Refresh()
 	} else {
-		s.errorLabel.SetText("")
-		s.errorLabel.Hide()
+		// s.errorLabel.SetText("")
+		// s.errorLabel.Hide()
 	}
 }
 
-func (s *GuiState) loadResources(ctx context.Context) {
+func (s *GuiState) loadResourcesLoop(ctx context.Context) {
 	for {
-		log.Println("Loading resources...")
-		resources, err := s.client.Resources()
-		if err != nil {
-			s.error(err)
-			return
-		}
-
-		vms := filter(resources, func(r Resource) bool { return r.Type == GuestType })
-		log.Printf("%d VMs found", len(vms))
-
-		// Load status from the cluster node. The cluster takes a few seconds to update.
-		for i := range vms {
-			status, err := s.client.Status(&vms[i])
-			if err != nil {
-				continue
-			}
-			vms[i].Status = status
-		}
-
-		s.mu.Lock()
-		s.resources = vms
-		s.mu.Unlock()
-
-		s.table.Refresh()
+		s.error(s.loadResources())
 
 		select {
-		case <-ctx.Done():
-			return
 		case <-s.updateTicker.C:
 		case <-s.refresh:
-			s.updateTicker.Reset(s.config.refreshInterval) // reset timer to fire after interval
+			s.updateTicker.Reset(s.refreshInterval) // reset timer to fire after interval
+		case <-ctx.Done():
+			return
 		}
 	}
 }
 
-func (s *GuiState) triggerRefresh() { s.refresh <- struct{}{} }
+func (s *GuiState) loadResources() error {
+	s.LogPrintf("Loading resources...")
+	resources, err := s.client.Resources()
+	if err != nil {
+		s.error(err)
+	}
 
-func (s *GuiState) withCurrentVM(f func(vm *Resource) error) func(shortcut fyne.Shortcut) {
-	return func(_ fyne.Shortcut) {
-		s.mu.Lock()
-		vm := &s.resources[s.table.CurrentRow]
-		s.mu.Unlock()
-		if vm != nil {
-			err := f(vm)
-			s.error(err)
+	vms := filter(resources, func(r Resource) bool { return r.Type == GuestType })
+	s.LogPrintf("%d VMs found", len(vms))
+
+	// Load status from the cluster node. The cluster takes a few seconds to update.
+	for i := range vms {
+		status, err := s.client.Status(&vms[i])
+		if err != nil {
+			continue
 		}
+		vms[i].Status = status
+	}
+
+	s.mu.Lock()
+	s.resources = vms
+	s.mu.Unlock()
+
+	s.table.Refresh()
+	return nil
+}
+
+func (s *GuiState) triggerRefresh() {
+	select {
+	case s.refresh <- struct{}{}:
+	default: // do not block on a refresh!
+	}
+}
+
+func (s *GuiState) withCurrentVM(f func(vm *Resource) error) {
+	s.mu.Lock()
+	vm := &s.resources[s.table.CurrentRow]
+	s.mu.Unlock()
+	if vm != nil {
+		err := f(vm)
+		s.error(err)
 	}
 }

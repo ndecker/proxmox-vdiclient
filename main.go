@@ -11,7 +11,10 @@ const ProgName = "proxmox-vdiclient"
 
 func main() {
 	clientConfig := DefaultClientConfig()
+	clientConfig.LogPrintf = log.Printf
+
 	guiConfig := DefaultGuiConfig()
+	guiConfig.LogPrintf = log.Printf
 
 	flagSet := flag.NewFlagSet(ProgName, flag.ExitOnError)
 
@@ -23,6 +26,8 @@ func main() {
 		flagSet.PrintDefaults()
 
 	}
+
+	flagSet.StringVar(&guiConfig.title, "title", guiConfig.title, "title shown in gui")
 
 	flagSet.StringVar(&clientConfig.Host, "host", clientConfig.Host, "proxmox hostname")
 	flagSet.IntVar(&clientConfig.Port, "port", clientConfig.Port, "proxmox port")
@@ -51,7 +56,7 @@ func main() {
 	checkFatal(err)
 
 	if len(flagSet.Args()) == 0 {
-		checkFatal(runGui(guiConfig, client))
+		runGui(guiConfig, client)
 	} else {
 		checkFatal(runCli(client, flagSet.Args()))
 	}
