@@ -233,7 +233,7 @@ func (s *GuiState) loadResources() error {
 	s.resources = vms
 	s.mu.Unlock()
 
-	s.table.Refresh()
+	fyne.DoAndWait(s.table.Refresh)
 	return nil
 }
 

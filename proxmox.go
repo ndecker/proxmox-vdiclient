@@ -55,7 +55,7 @@ func DefaultClientConfig() ClientConfig {
 		SkipTLSVerify:     false,
 		autostartVM:       true,
 		LogPrintf:         func(string, ...interface{}) {},
-		debugSpiceSession: true,
+		debugSpiceSession: false,
 	}
 }
 
