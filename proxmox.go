@@ -48,13 +48,14 @@ type ClientConfig struct {
 
 func DefaultClientConfig() ClientConfig {
 	return ClientConfig{
-		Port:          DefaultPort,
-		remoteViewer:  DefaultRemoteViewer,
-		kiosk:         false,
-		fullscreen:    false,
-		SkipTLSVerify: false,
-		autostartVM:   true,
-		LogPrintf:     func(string, ...interface{}) {},
+		Port:              DefaultPort,
+		remoteViewer:      DefaultRemoteViewer,
+		kiosk:             false,
+		fullscreen:        false,
+		SkipTLSVerify:     false,
+		autostartVM:       true,
+		LogPrintf:         func(string, ...interface{}) {},
+		debugSpiceSession: true,
 	}
 }
 
@@ -75,6 +76,8 @@ func NewProxmoxClient(c ClientConfig) (*ProxmoxClient, error) {
 			return nil, err
 		}
 	}
+
+	c.LogPrintf("New Client: %s", c.Host)
 
 	client := &ProxmoxClient{
 		ClientConfig: c,
@@ -122,8 +125,10 @@ func (c *ProxmoxClient) request(method string, endpoint []string, data any) erro
 		req.Header.Add(k, v)
 	}
 
+	// TODO: request Timeout
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		c.LogPrintf("request error: %v", err)
 		return err
 	}
 

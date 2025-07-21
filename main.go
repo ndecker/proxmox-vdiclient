@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"flag"
 	"fmt"
 	"log"
@@ -8,6 +9,14 @@ import (
 )
 
 const ProgName = "proxmox-vdiclient"
+
+var (
+	//go:embed Readme.md
+	readme string
+
+	//go:embed LICENSE
+	license string
+)
 
 func main() {
 	clientConfig := DefaultClientConfig()
@@ -24,8 +33,10 @@ func main() {
 		fmt.Println("  operations: status, start, stop, reset, open (default)")
 		fmt.Println()
 		flagSet.PrintDefaults()
-
 	}
+
+	showReadme := flagSet.Bool("readme", false, "show readme file")
+	showLicense := flagSet.Bool("license", false, "show license file")
 
 	flagSet.StringVar(&guiConfig.title, "title", guiConfig.title, "title shown in gui")
 
@@ -51,6 +62,15 @@ func main() {
 	flagSet.Var(flagConfigFile, "config", "Path to config file")
 
 	checkFatal(flagSet.Parse(os.Args[1:]))
+
+	if *showReadme {
+		fmt.Println(readme)
+		return
+	}
+	if *showLicense {
+		fmt.Println(license)
+		return
+	}
 
 	client, err := NewProxmoxClient(clientConfig)
 	checkFatal(err)
