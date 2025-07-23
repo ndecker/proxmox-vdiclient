@@ -186,13 +186,12 @@ func (s *GuiState) createTable() *MyTable {
 
 func (s *GuiState) error(err error) {
 	if err != nil {
-		s.LogPrintf("Error: %s", err)
-		s.errorLabel.SetText("Error: " + err.Error())
-		s.errorLabel.Show()
-		s.errorLabel.Refresh()
-	} else {
-		// s.errorLabel.SetText("")
-		// s.errorLabel.Hide()
+		fyne.DoAndWait(func() {
+			s.LogPrintf("Error: %s", err)
+			s.errorLabel.SetText("Error: " + err.Error())
+			s.errorLabel.Show()
+			s.errorLabel.Refresh()
+		})
 	}
 }
 
