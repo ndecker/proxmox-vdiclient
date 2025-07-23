@@ -7,7 +7,7 @@ Proxmox VDI client is a small launcher that starts a remote-viewer session for p
 
 It opens [Virt-Viewer](https://www.spice-space.org/download.html) / remote-viewer for the selected VMs.
 
-It is inspired by [PVE-VFIClient](https://github.com/joshpatten/PVE-VDIClient)
+It is inspired by [PVE-VDIClient](https://github.com/joshpatten/PVE-VDIClient)
 
 ## Usage
 
