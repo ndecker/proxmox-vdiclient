@@ -1,10 +1,9 @@
-Proxmox VDI Client
-==================
+# Proxmox VDI Client
 
 https://github.com/joshpatten/PVE-VDIClient
 
-Usage
------
+## Usage
+
 ```
 Usage of proxmox-vdiclient [flags] [vmid/name [operation]]:
 
@@ -38,8 +37,8 @@ Usage of proxmox-vdiclient [flags] [vmid/name [operation]]:
     	skip TLS certificate verification
 ```
 
-Configuration file
-------------------
+## Configuration file
+
 The configuration file is a simple file with one option per line. Comment lines with '#' are ignored.
 
 Commandline options can be set from the configuration file.
@@ -51,13 +50,35 @@ title = Available VMs on your Proxmox
 host = hostname.proxmox.server
 # start remote-viewer in fullscreen mode
 fullscreen = true
+
+token-name = user@hostname!token
+token-value = 12345678-abcd-1234-5678-1234567890ab
 ```
 
-Permissions
------------
+## Permissions
 
 | Permission   | needed for                     |
 |--------------|--------------------------------|
 | VM.Audit     | list and query VM              |
 | VM.Console   | open SPICE session             |
 | VM.PowerMgmt | start/stop/reset VM (optional) |
+
+
+## Authentication
+
+Proxmox VDI client currently only supports proxmox token authentication.
+
+## Building
+
+
+### Linux
+
+requires x11 development libraries (for fyne)
+
+`go build`
+
+### cross compiling for windows:
+
+requires mingw64-gcc
+
+`LANG=C GOOS=windows GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc go build -v`
