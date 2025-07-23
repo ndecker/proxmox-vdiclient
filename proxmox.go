@@ -27,14 +27,13 @@ const (
 )
 
 type ClientConfig struct {
-	Host string
-	Port int
+	Host          string
+	Port          int
+	SkipTLSVerify bool
 
 	remoteViewer string
 	kiosk        bool
 	fullscreen   bool
-
-	SkipTLSVerify bool // TODO
 
 	tokenName  string
 	tokenValue string
@@ -125,7 +124,6 @@ func (c *ProxmoxClient) request(method string, endpoint []string, data any) erro
 		req.Header.Add(k, v)
 	}
 
-	// TODO: request Timeout
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		c.LogPrintf("request error: %v", err)
