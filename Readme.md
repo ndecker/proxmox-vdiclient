@@ -1,6 +1,13 @@
 # Proxmox VDI Client
 
-https://github.com/joshpatten/PVE-VDIClient
+Proxmox VDI client is a small launcher that starts a remote-viewer session for proxmox virtual machines.
+
+![Screenshot](screenshot.png)
+
+
+It opens [Virt-Viewer](https://www.spice-space.org/download.html) / remote-viewer for the selected VMs.
+
+It is inspired by [PVE-VFIClient](https://github.com/joshpatten/PVE-VDIClient)
 
 ## Usage
 
@@ -55,7 +62,15 @@ token-name = user@hostname!token
 token-value = 12345678-abcd-1234-5678-1234567890ab
 ```
 
+## Authentication
+
+Proxmox VDI client currently only supports proxmox token authentication.
+
+You can create tokens in Proxmox at Datacenter / Permissions / API Tokens.
+
 ## Permissions
+
+You add the VMs you want to show to a resource pool. Then you add the token to the resource pool with these permissions:
 
 | Permission   | needed for                     |
 |--------------|--------------------------------|
@@ -64,9 +79,6 @@ token-value = 12345678-abcd-1234-5678-1234567890ab
 | VM.PowerMgmt | start/stop/reset VM (optional) |
 
 
-## Authentication
-
-Proxmox VDI client currently only supports proxmox token authentication.
 
 ## Building
 
